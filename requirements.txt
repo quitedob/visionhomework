@@ -1,0 +1,21 @@
+# OpenCV Image Processing Experiment Dependencies
+# Computer Vision Library
+opencv-python>=4.5.0
+
+# Numerical Computing Library
+numpy>=1.20.0
+
+# Image Processing Library
+Pillow>=8.0.0
+
+# PyTorch Deep Learning Framework
+torch>=1.9.0
+
+# PyTorch Computer Vision Library
+torchvision>=0.10.0
+
+# Data Visualization Library
+matplotlib>=3.3.0
+
+# Progress Bar Library
+tqdm>=4.64.0
