@@ -2,6 +2,9 @@
 
 这是一个基于Python的OpenCV图像处理实验项目，提供交互式的图像处理学习体验。
 
+**作者**: dobqop999@gmail.com  
+**GitHub**: [https://github.com/quitedob/visionhomework](https://github.com/quitedob/visionhomework)
+
 ## 项目结构
 
 ```
@@ -177,28 +180,6 @@ data/DogsVSCats/
 
 您可以从[Kaggle Dogs vs. Cats](https://www.kaggle.com/c/dogs-vs-cats/data)下载数据集。
 
-## Git版本控制
-
-项目已配置完善的`.gitignore`文件，会自动忽略以下类型的文件：
-
-### IDE和编辑器配置
-- `.cursor/`, `.claude/`, `.kiro/`, `.qorder/`, `.vscode/` 等各种IDE配置
-- `.idea/` (PyCharm)
-- Vim临时文件 (`*.swp`, `*.swo`)
-
-### Python相关
-- `__pycache__/`, `*.pyc`, `*.pyo` 等编译文件
-- 虚拟环境目录 (`.venv/`, `venv/`, `ENV/`)
-- 分发包 (`dist/`, `build/`, `*.egg-info/`)
-
-### 机器学习相关
-- 模型文件 (`*.pth`, `*.pkl`, `*.h5`, `*.pb`, `*.onnx`)
-- 数据目录 (`data/`, `datasets/`, `models/`, `checkpoints/`)
-
-### 系统文件
-- macOS: `.DS_Store`
-- Windows: `Thumbs.db`, `desktop.ini`
-- Linux: `*~`
 
 ## 注意事项
 

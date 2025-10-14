@@ -1077,16 +1077,129 @@ class MNIST_Experiment_GUI:
             self.step_desc_label.config(text="")
 
     def load_data(self):
-        """加载MNIST数据集"""
+        """加载MNIST数据集（增强版）"""
         try:
+            self.status_label.config(text="正在加载数据...")
+            self.progress_var.set(10)
+
+            # 获取数据集大小设置
+            dataset_size = self.dataset_size_var.get()
+
+            # 自定义数据加载函数
+            def load_custom_data(size):
+                # 数据预处理变换
+                transform = transforms.Compose([
+                    transforms.ToTensor(),
+                    transforms.Normalize(mean=[0.5], std=[0.5])
+                ])
+
+                # 下载完整数据集
+                full_train = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
+                full_test = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
+
+                # 分割为指定大小的数据集
+                train_data, _ = random_split(
+                    full_train, [size, len(full_train) - size],
+                    generator=torch.Generator().manual_seed(42)
+                )
+                test_size = min(size, len(full_test))
+                test_data, _ = random_split(
+                    full_test, [test_size, len(full_test) - test_size],
+                    generator=torch.Generator().manual_seed(42)
+                )
+
+                return train_data, test_data
+
+            self.data_train, self.data_test = load_custom_data(dataset_size)
+
+            # 使用用户设置的批次大小
+            batch_size = self.batch_size_var.get()
+            self.data_loader_train = torch.utils.data.DataLoader(
+                self.data_train, batch_size=batch_size, shuffle=True
+            )
+            self.data_loader_test = torch.utils.data.DataLoader(
+                self.data_test, batch_size=batch_size, shuffle=True
+            )
+
+            self.progress_var.set(100)
             self.status_label.config(text=self.text_resources[self.current_language]["status_data_loaded"])
-            self.data_train, self.data_test = setup_data()
-            self.data_loader_train, self.data_loader_test = create_data_loaders(self.data_train, self.data_test)
             self.current_step = 1
             self.update_ui_state()
-            messagebox.showinfo("成功", "MNIST数据集加载完成！")
+
+            # 显示数据统计
+            self.display_data_statistics()
+            messagebox.showinfo("成功", f"MNIST数据集加载完成！\n训练集: {len(self.data_train)} 张\n测试集: {len(self.data_test)} 张")
+
         except Exception as e:
+            self.progress_var.set(0)
             messagebox.showerror("错误", f"数据加载失败: {str(e)}")
+
+    def display_data_statistics(self):
+        """显示数据统计信息"""
+        if not self.data_train:
+            return
+
+        # 切换到数据标签页
+        self.tab_control.select(self.data_tab)
+
+        # 清除图形
+        self.data_figure.clear()
+
+        # 创建子图
+        fig = self.data_figure
+        gs = fig.add_gridspec(2, 2, hspace=0.3, wspace=0.3)
+
+        # 1. 数据样本预览
+        ax1 = fig.add_subplot(gs[0, :])
+        images, labels = next(iter(self.data_loader_train))
+        img_grid = torchvision.utils.make_grid(images[:16], nrow=8, normalize=True)
+        ax1.imshow(img_grid.permute(1, 2, 0))
+        ax1.set_title(f"数据样本预览 (标签: {labels[:16].tolist()})")
+        ax1.axis('off')
+
+        # 2. 标签分布
+        ax2 = fig.add_subplot(gs[1, 0])
+        label_counts = {}
+        for _, label in self.data_train:
+            label_counts[label.item()] = label_counts.get(label.item(), 0) + 1
+
+        digits = list(label_counts.keys())
+        counts = list(label_counts.values())
+        colors = plt.cm.Set3(np.linspace(0, 1, len(digits)))
+
+        bars = ax2.bar(digits, counts, color=colors)
+        ax2.set_title("训练集标签分布")
+        ax2.set_xlabel("数字")
+        ax2.set_ylabel("数量")
+        ax2.grid(True, alpha=0.3)
+
+        # 添加数值标签
+        for bar, count in zip(bars, counts):
+            height = bar.get_height()
+            ax2.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{count}', ha='center', va='bottom')
+
+        # 3. 数据集信息
+        ax3 = fig.add_subplot(gs[1, 1])
+        ax3.axis('off')
+
+        info_text = f"""数据集信息:
+
+训练集大小: {len(self.data_train)}
+测试集大小: {len(self.data_test)}
+批次大小: {self.batch_size_var.get()}
+图像尺寸: 28×28 像素
+通道数: 1 (灰度图)
+数据范围: [-1, 1] (标准化后)
+
+类别分布均衡性: {'是' if max(counts)/min(counts) < 1.2 else '否'}
+最大/最小比例: {max(counts)/min(counts):.2f}"""
+
+        ax3.text(0.1, 0.9, info_text, transform=ax3.transAxes,
+                fontsize=10, verticalalignment='top', fontfamily='monospace',
+                bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8))
+
+        self.data_canvas.draw()
 
     def preview_data(self):
         """预览数据"""
@@ -1115,12 +1228,18 @@ class MNIST_Experiment_GUI:
             messagebox.showerror("错误", f"模型搭建失败: {str(e)}")
 
     def start_training(self):
-        """开始训练模型"""
+        """开始训练模型（增强版）"""
         if self.model is None:
             messagebox.showwarning("警告", "请先搭建模型！")
             return
 
+        # 切换到训练监控标签页
+        self.tab_control.select(self.training_tab)
+
         self.is_training = True
+        self.training_status_label.config(text="训练中...")
+        self.train_button.config(state=tk.DISABLED)
+        self.stop_train_button.config(state=tk.NORMAL)
         self.update_ui_state()
 
         # 在后台线程中训练模型
@@ -1128,31 +1247,197 @@ class MNIST_Experiment_GUI:
         training_thread.daemon = True
         training_thread.start()
 
+    def stop_training(self):
+        """停止训练"""
+        self.is_training = False
+        self.training_status_label.config(text="训练已停止")
+        self.train_button.config(state=tk.NORMAL)
+        self.stop_train_button.config(state=tk.DISABLED)
+
     def train_model_thread(self):
-        """训练模型的线程函数"""
+        """训练模型的线程函数（增强版）"""
         try:
             self.status_label.config(text=self.text_resources[self.current_language]["status_training"])
             self.progress_var.set(0)
 
-            # 重定向训练函数以支持进度更新
-            train_model_with_progress(self.model, self.data_loader_train, self.data_loader_test,
-                                    num_epochs=5, progress_callback=self.update_progress)
+            # 重置训练历史
+            self.training_history = {'loss': [], 'train_acc': [], 'test_acc': [], 'lr': []}
+
+            # 获取训练参数
+            num_epochs = self.epochs_var.get()
+            learning_rate = self.learning_rate_var.get()
+
+            # 增强的训练函数
+            self._train_model_with_realtime_monitoring(num_epochs, learning_rate)
 
             self.progress_var.set(100)
             self.status_label.config(text=self.text_resources[self.current_language]["status_trained"])
             self.is_training = False
             self.current_step = 4
+            self.training_status_label.config(text="训练完成")
+            self.train_button.config(state=tk.NORMAL)
+            self.stop_train_button.config(state=tk.DISABLED)
             self.update_ui_state()
             messagebox.showinfo("成功", "模型训练完成！")
 
         except Exception as e:
             self.is_training = False
+            self.training_status_label.config(text="训练失败")
+            self.train_button.config(state=tk.NORMAL)
+            self.stop_train_button.config(state=tk.DISABLED)
             self.update_ui_state()
             messagebox.showerror("错误", f"训练失败: {str(e)}")
+
+    def _train_model_with_realtime_monitoring(self, num_epochs, learning_rate):
+        """带实时监控的训练函数"""
+        # 定义损失函数和优化器
+        criterion = torch.nn.CrossEntropyLoss()
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.5)
+
+        total_steps = num_epochs * len(self.data_loader_train)
+        current_step = 0
+
+        for epoch in range(num_epochs):
+            if not self.is_training:
+                break
+
+            running_loss = 0.0
+            running_correct = 0
+
+            # 训练阶段
+            self.model.train()
+            for data in self.data_loader_train:
+                if not self.is_training:
+                    break
+
+                current_step += 1
+                progress = (current_step / total_steps) * 100
+                self.root.after(0, self.update_progress, progress)
+
+                X_train, y_train = data
+
+                # 前向传播
+                outputs = self.model(X_train)
+                _, predicted = torch.max(outputs.data, 1)
+
+                # 计算损失
+                loss = criterion(outputs, y_train)
+
+                # 反向传播和优化
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+                # 累计统计
+                running_loss += loss.data.item()
+                running_correct += torch.sum(predicted == y_train.data).item()
+
+            # 测试阶段
+            self.model.eval()
+            testing_correct = 0
+
+            with torch.no_grad():
+                for data in self.data_loader_test:
+                    if not self.is_training:
+                        break
+                    X_test, y_test = data
+                    outputs = self.model(X_test)
+                    _, predicted = torch.max(outputs.data, 1)
+                    testing_correct += torch.sum(predicted == y_test.data).item()
+
+            # 计算指标
+            train_accuracy = 100 * running_correct / len(self.data_loader_train.dataset)
+            test_accuracy = 100 * testing_correct / len(self.data_loader_test.dataset)
+            avg_loss = running_loss / len(self.data_loader_train.dataset)
+            current_lr = optimizer.param_groups[0]['lr']
+
+            # 记录训练历史
+            self.training_history['loss'].append(avg_loss)
+            self.training_history['train_acc'].append(train_accuracy)
+            self.training_history['test_acc'].append(test_accuracy)
+            self.training_history['lr'].append(current_lr)
+
+            # 更新训练监控图表
+            self.root.after(0, self.update_training_plots)
+
+            print(f"Epoch {epoch + 1}: Loss: {avg_loss:.4f}, Train Acc: {train_accuracy:.2f}%, Test Acc: {test_accuracy:.2f}%, LR: {current_lr:.6f}")
+
+            scheduler.step()
 
     def update_progress(self, progress):
         """更新训练进度"""
         self.progress_var.set(progress)
+
+    def update_training_plots(self):
+        """更新训练监控图表"""
+        if not self.training_history['loss']:
+            return
+
+        # 清除图形
+        self.training_figure.clear()
+
+        # 创建子图
+        fig = self.training_figure
+        gs = fig.add_gridspec(2, 2, hspace=0.3, wspace=0.3)
+
+        epochs = range(1, len(self.training_history['loss']) + 1)
+
+        # 1. 损失曲线
+        ax1 = fig.add_subplot(gs[0, 0])
+        ax1.plot(epochs, self.training_history['loss'], 'b-', linewidth=2, label='训练损失')
+        ax1.set_title('训练损失')
+        ax1.set_xlabel('Epoch')
+        ax1.set_ylabel('Loss')
+        ax1.grid(True, alpha=0.3)
+        ax1.legend()
+
+        # 2. 准确率曲线
+        ax2 = fig.add_subplot(gs[0, 1])
+        ax2.plot(epochs, self.training_history['train_acc'], 'g-', linewidth=2, label='训练准确率')
+        ax2.plot(epochs, self.training_history['test_acc'], 'r-', linewidth=2, label='测试准确率')
+        ax2.set_title('模型准确率')
+        ax2.set_xlabel('Epoch')
+        ax2.set_ylabel('Accuracy (%)')
+        ax2.grid(True, alpha=0.3)
+        ax2.legend()
+
+        # 3. 学习率曲线
+        ax3 = fig.add_subplot(gs[1, 0])
+        ax3.plot(epochs, self.training_history['lr'], 'orange', linewidth=2, label='学习率')
+        ax3.set_title('学习率变化')
+        ax3.set_xlabel('Epoch')
+        ax3.set_ylabel('Learning Rate')
+        ax3.grid(True, alpha=0.3)
+        ax3.legend()
+
+        # 4. 训练信息
+        ax4 = fig.add_subplot(gs[1, 1])
+        ax4.axis('off')
+
+        if self.training_history['loss']:
+            current_epoch = len(self.training_history['loss'])
+            current_loss = self.training_history['loss'][-1]
+            current_train_acc = self.training_history['train_acc'][-1]
+            current_test_acc = self.training_history['test_acc'][-1]
+            current_lr = self.training_history['lr'][-1]
+
+            info_text = f"""训练进度信息:
+
+当前Epoch: {current_epoch}
+当前损失: {current_loss:.4f}
+训练准确率: {current_train_acc:.2f}%
+测试准确率: {current_test_acc:.2f}%
+当前学习率: {current_lr:.6f}
+
+最佳测试准确率: {max(self.training_history['test_acc']):.2f}%
+损失趋势: {'下降' if len(self.training_history['loss']) > 1 and self.training_history['loss'][-1] < self.training_history['loss'][-2] else '上升'}"""
+
+            ax4.text(0.1, 0.9, info_text, transform=ax4.transAxes,
+                    fontsize=10, verticalalignment='top', fontfamily='monospace',
+                    bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+
+        self.training_canvas.draw()
 
     def test_model(self):
         """测试模型"""

@@ -1,5 +1,5 @@
-# 实验3: 迁移学习ResNet50猫狗图像分类 - GUI版本
-# 使用预训练ResNet50模型进行猫狗二分类任务 - 交互式界面
+# 实验3: 迁移学习ResNet50猫狗图像分类 - 增强GUI版本
+# 使用预训练ResNet50模型进行猫狗二分类任务 - 高性能交互式界面
 
 import torch  # PyTorch深度学习框架
 import torchvision  # PyTorch计算机视觉库
@@ -7,41 +7,54 @@ from torchvision import datasets, models, transforms  # 数据集、模型和变
 import os  # 操作系统接口
 import numpy as np  # 数值计算
 import matplotlib.pyplot as plt  # 数据可视化
+import matplotlib
+matplotlib.use('TkAgg')  # 设置Matplotlib后端
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
 import time  # 时间测量
 from tqdm import tqdm  # 进度条库
 from torch.optim.lr_scheduler import ReduceLROnPlateau  # 学习率调度器
+import seaborn as sns  # 增强可视化
+import psutil  # 系统资源监控
+import GPUtil  # GPU监控
 
 # GUI相关导入
 import tkinter as tk  # Python标准GUI库
 from tkinter import ttk, filedialog, messagebox  # Tkinter子模块
-from PIL import Image, ImageTk  # Python图像处理库
+from PIL import Image, ImageTk, ImageDraw  # Python图像处理库
 import threading  # 多线程支持
 import queue  # 线程间通信队列
+import weakref  # 弱引用缓存
+from functools import lru_cache  # LRU缓存装饰器
+import json  # JSON配置保存
+from datetime import datetime  # 时间戳记录
 
 class ResNet50CatDogGUI:
     """
-    ResNet50猫狗分类实验GUI主类
+    ResNet50猫狗分类实验增强GUI主类
 
-    提供交互式的迁移学习实验演示，包括：
-    - 数据集加载和预览
-    - 模型配置和迁移学习设置
-    - 实时训练进度监控
-    - 模型性能分析和可视化
-    - 单个图像预测功能
+    提供高性能的交互式迁移学习实验演示，包括：
+    - 数据集加载和预览（缓存优化）
+    - 模型配置和迁移学习设置（性能监控）
+    - 实时训练进度监控（资源监控）
+    - 模型性能分析和可视化（高级图表）
+    - 单个图像预测功能（批量处理）
+    - 模型导出和配置管理
+    - 系统资源监控和优化建议
 
-    支持中英文界面切换，现代化UI设计
+    支持中英文界面切换，现代化UI设计，性能优化
     """
     def __init__(self):
         """
-        初始化ResNet50猫狗分类GUI应用程序
+        初始化ResNet50猫狗分类增强GUI应用程序
 
         创建Tkinter主窗口，初始化所有变量和数据结构，
         设置多语言支持，默认使用中文界面
         """
         # 创建主窗口
         self.root = tk.Tk()
-        self.root.title("ResNet50猫狗分类 - 迁移学习实验")
-        self.root.geometry("1600x1000")  # 窗口大小：1600x1000像素
+        self.root.title("ResNet50猫狗分类 - 增强迁移学习实验")
+        self.root.geometry("1800x1200")  # 更大的窗口尺寸
         self.root.resizable(True, True)  # 允许调整窗口大小
 
         # 设置现代化的窗口样式
@@ -64,8 +77,25 @@ class ResNet50CatDogGUI:
         self.best_accuracy = 0.0  # 最佳准确率
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 计算设备
 
+        # 性能优化相关变量
+        self.image_cache = weakref.WeakValueDictionary()  # 图像缓存
+        self.figure_cache = weakref.WeakValueDictionary()  # 图形缓存
+        self.photo_cache = {}  # PIL图像缓存
+        self.max_cache_size = 20  # 最大缓存大小
+        self.processing_queue = queue.Queue()  # 处理队列
+        self.resource_monitoring = False  # 资源监控状态
+        self.system_stats = {'cpu': [], 'memory': [], 'gpu': []}  # 系统统计
+
+        # 配置管理
+        self.config_file = 'resnet50_config.json'
+        self.experiment_log = []
+        self.model_checkpoints = []
+
         # GUI通信队列
         self.message_queue = queue.Queue()
+
+        # 启动资源监控
+        self.start_resource_monitoring()
 
         # 多语言文本资源
         self.text_resources = {
@@ -143,10 +173,179 @@ class ResNet50CatDogGUI:
             }
         }
 
+        # 加载配置
+        self.load_config()
+
         self.setup_gui()
         self.create_widgets()
         self.update_language()  # 设置初始语言
         self.check_message_queue()  # 启动消息队列检查
+
+    # 性能优化和资源监控方法
+    def start_resource_monitoring(self):
+        """启动系统资源监控"""
+        self.resource_monitoring = True
+        self.monitoring_thread = threading.Thread(target=self._resource_monitoring_loop, daemon=True)
+        self.monitoring_thread.start()
+
+    def stop_resource_monitoring(self):
+        """停止系统资源监控"""
+        self.resource_monitoring = False
+
+    def _resource_monitoring_loop(self):
+        """资源监控循环"""
+        while self.resource_monitoring:
+            try:
+                # CPU使用率
+                cpu_percent = psutil.cpu_percent(interval=1)
+                self.system_stats['cpu'].append(cpu_percent)
+
+                # 内存使用率
+                memory = psutil.virtual_memory()
+                self.system_stats['memory'].append(memory.percent)
+
+                # GPU使用率（如果可用）
+                try:
+                    gpus = GPUtil.getGPUs()
+                    if gpus:
+                        gpu_usage = gpus[0].load * 100
+                        self.system_stats['gpu'].append(gpu_usage)
+                except:
+                    self.system_stats['gpu'].append(0)
+
+                # 保持最近100个数据点
+                for key in self.system_stats:
+                    if len(self.system_stats[key]) > 100:
+                        self.system_stats[key] = self.system_stats[key][-100:]
+
+                time.sleep(2)  # 每2秒监控一次
+            except Exception as e:
+                print(f"资源监控错误: {e}")
+                time.sleep(5)
+
+    def clear_cache(self):
+        """清理缓存以释放内存"""
+        self.image_cache.clear()
+        self.figure_cache.clear()
+        self.photo_cache.clear()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    @lru_cache(maxsize=30)
+    def get_cached_image(self, image_path, resize_size=None):
+        """获取缓存图像"""
+        cache_key = f"{image_path}_{resize_size}"
+
+        if cache_key in self.photo_cache:
+            return self.photo_cache[cache_key]
+
+        try:
+            image = Image.open(image_path)
+            if resize_size:
+                image.thumbnail(resize_size, Image.Resampling.LANCZOS)
+
+            photo = ImageTk.PhotoImage(image)
+
+            # 限制缓存大小
+            if len(self.photo_cache) >= self.max_cache_size:
+                # 删除最旧的缓存项
+                oldest_key = next(iter(self.photo_cache))
+                del self.photo_cache[oldest_key]
+
+            self.photo_cache[cache_key] = photo
+            return photo
+        except Exception as e:
+            print(f"图像缓存错误: {e}")
+            return None
+
+    def process_in_background(self, task_func, callback=None, *args, **kwargs):
+        """在后台线程中处理任务"""
+        def worker():
+            try:
+                result = task_func(*args, **kwargs)
+                if callback:
+                    self.root.after(0, callback, result)
+                else:
+                    self.processing_queue.put(('result', result))
+            except Exception as e:
+                self.processing_queue.put(('error', str(e)))
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+
+    def load_config(self):
+        """加载配置文件"""
+        try:
+            if os.path.exists(self.config_file):
+                with open(self.config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                    # 应用配置
+                    if 'batch_size' in config:
+                        self.batch_size_var = tk.IntVar(value=config['batch_size'])
+                    if 'epochs' in config:
+                        self.epochs_var = tk.IntVar(value=config['epochs'])
+                    if 'learning_rate' in config:
+                        self.learning_rate_var = tk.DoubleVar(value=config['learning_rate'])
+        except Exception as e:
+            print(f"配置加载失败: {e}")
+
+    def save_config(self):
+        """保存配置文件"""
+        try:
+            config = {
+                'batch_size': getattr(self, 'batch_size_var', tk.IntVar(value=16)).get(),
+                'epochs': getattr(self, 'epochs_var', tk.IntVar(value=10)).get(),
+                'learning_rate': getattr(self, 'learning_rate_var', tk.DoubleVar(value=0.001)).get(),
+                'strategy': getattr(self, 'strategy_var', tk.StringVar(value="fine_tune")).get(),
+                'use_scheduler': getattr(self, 'use_scheduler_var', tk.BooleanVar(value=True)).get(),
+                'timestamp': datetime.now().isoformat()
+            }
+
+            with open(self.config_file, 'w', encoding='utf-8') as f:
+                json.dump(config, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"配置保存失败: {e}")
+
+    def log_experiment(self, event_type, details):
+        """记录实验日志"""
+        log_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'event': event_type,
+            'details': details
+        }
+        self.experiment_log.append(log_entry)
+
+        # 保持最近1000条日志
+        if len(self.experiment_log) > 1000:
+            self.experiment_log = self.experiment_log[-1000:]
+
+    def get_performance_optimization_tips(self):
+        """获取性能优化建议"""
+        tips = []
+
+        # CPU使用率分析
+        if self.system_stats['cpu']:
+            avg_cpu = sum(self.system_stats['cpu'][-10:]) / min(10, len(self.system_stats['cpu']))
+            if avg_cpu > 80:
+                tips.append("CPU使用率较高，建议降低批次大小或使用GPU加速")
+
+        # 内存使用率分析
+        if self.system_stats['memory']:
+            avg_memory = sum(self.system_stats['memory'][-10:]) / min(10, len(self.system_stats['memory']))
+            if avg_memory > 85:
+                tips.append("内存使用率较高，建议减少数据加载器工作进程数量")
+
+        # GPU使用率分析
+        if torch.cuda.is_available() and self.system_stats['gpu']:
+            avg_gpu = sum(self.system_stats['gpu'][-10:]) / min(10, len(self.system_stats['gpu']))
+            if avg_gpu < 50:
+                tips.append("GPU使用率较低，可以增加批次大小以提高训练效率")
+
+        # 设备建议
+        if not torch.cuda.is_available():
+            tips.append("建议使用GPU进行训练以显著提高性能")
+
+        return tips
 
     def setup_gui(self):
         """
@@ -267,6 +466,7 @@ class ResNet50CatDogGUI:
         self.create_model_tab()
         self.create_training_tab()
         self.create_testing_tab()
+        self.create_performance_tab()  # 新增性能监控标签页
 
         # 状态栏
         self.status_label = ttk.Label(self.main_frame, text="准备开始迁移学习实验。",
@@ -457,16 +657,17 @@ class ResNet50CatDogGUI:
                                  font=('Consolas', 10), bg='#f5f5f5')
         self.stats_text.grid(row=0, column=0, sticky=(tk.W, tk.E))
 
-        # 图表显示框架
+        # 图表显示框架 - 使用matplotlib
         charts_frame = ttk.LabelFrame(self.training_frame, text="训练图表",
                                      padding="15", style='Modern.TLabelframe')
         charts_frame.grid(row=3, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         charts_frame.columnconfigure(0, weight=1)
         charts_frame.rowconfigure(0, weight=1)
 
-        self.chart_canvas = tk.Canvas(charts_frame, bg=self.surface_color,
-                                    height=400, highlightthickness=1)
-        self.chart_canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # 创建matplotlib图形
+        self.training_figure = Figure(figsize=(12, 8), dpi=80)
+        self.training_canvas = FigureCanvasTkAgg(self.training_figure, charts_frame)
+        self.training_canvas.get_tk_widget().grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
 
         # 配置训练标签页的网格权重
         self.training_frame.columnconfigure(0, weight=1)
@@ -535,6 +736,190 @@ class ResNet50CatDogGUI:
         # 配置测试标签页的网格权重
         self.testing_frame.columnconfigure(0, weight=1)
         self.testing_frame.rowconfigure(2, weight=1)
+
+    def create_performance_tab(self):
+        """创建性能监控标签页"""
+        self.performance_frame = ttk.Frame(self.notebook, padding="20", style='Modern.TFrame')
+        self.notebook.add(self.performance_frame, text="性能监控")
+
+        # 资源监控框架
+        resource_frame = ttk.LabelFrame(self.performance_frame, text="系统资源监控",
+                                       padding="15", style='Modern.TLabelframe')
+        resource_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 20))
+        resource_frame.columnconfigure(0, weight=1)
+
+        # 系统信息
+        info_frame = ttk.Frame(resource_frame, style='Modern.TFrame')
+        info_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 15))
+
+        # 设备信息
+        device_info = f"计算设备: {self.device}"
+        if torch.cuda.is_available():
+            device_info += f" | GPU: {torch.cuda.get_device_name(0)}"
+            device_info += f" | GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB"
+
+        self.device_info_label = ttk.Label(info_frame, text=device_info, style='Modern.TLabel')
+        self.device_info_label.grid(row=0, column=0, sticky=tk.W)
+
+        # 资源监控图表
+        monitor_charts_frame = ttk.LabelFrame(self.performance_frame, text="实时监控图表",
+                                            padding="15", style='Modern.TLabelframe')
+        monitor_charts_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        monitor_charts_frame.columnconfigure(0, weight=1)
+        monitor_charts_frame.rowconfigure(0, weight=1)
+
+        # 创建资源监控图表
+        self.performance_figure = Figure(figsize=(14, 8), dpi=80)
+        self.performance_canvas = FigureCanvasTkAgg(self.performance_figure, monitor_charts_frame)
+        self.performance_canvas.get_tk_widget().grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+
+        # 性能优化建议框架
+        tips_frame = ttk.LabelFrame(self.performance_frame, text="性能优化建议",
+                                  padding="15", style='Modern.TLabelframe')
+        tips_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(20, 0))
+        tips_frame.columnconfigure(0, weight=1)
+
+        self.performance_tips_text = tk.Text(tips_frame, height=6, width=100, wrap=tk.WORD,
+                                           font=('Arial', 10), bg='#f5f5f5')
+        self.performance_tips_text.grid(row=0, column=0, sticky=(tk.W, tk.E))
+
+        # 缓存管理框架
+        cache_frame = ttk.LabelFrame(self.performance_frame, text="缓存管理",
+                                   padding="15", style='Modern.TLabelframe')
+        cache_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(20, 0))
+
+        self.clear_cache_button = ttk.Button(cache_frame, text="清理缓存",
+                                           command=self.clear_cache_and_update, style='Modern.TButton')
+        self.clear_cache_button.grid(row=0, column=0, padx=(0, 15))
+
+        self.cache_info_label = ttk.Label(cache_frame, text="缓存状态: 正常", style='Modern.TLabel')
+        self.cache_info_label.grid(row=0, column=1, padx=(15, 0))
+
+        # 配置管理框架
+        config_frame = ttk.LabelFrame(self.performance_frame, text="配置管理",
+                                    padding="15", style='Modern.TLabelframe')
+        config_frame.grid(row=4, column=0, sticky=(tk.W, tk.E), pady=(20, 0))
+
+        self.save_config_button = ttk.Button(config_frame, text="保存配置",
+                                          command=self.save_config_and_notify, style='Success.TButton')
+        self.save_config_button.grid(row=0, column=0, padx=(0, 15))
+
+        self.load_config_button = ttk.Button(config_frame, text="重新加载配置",
+                                          command=self.load_config_and_notify, style='Modern.TButton')
+        self.load_config_button.grid(row=0, column=1, padx=(0, 15))
+
+        self.config_status_label = ttk.Label(config_frame, text="配置状态: 已加载", style='Modern.TLabel')
+        self.config_status_label.grid(row=0, column=2, padx=(15, 0))
+
+        # 配置性能标签页的网格权重
+        self.performance_frame.columnconfigure(0, weight=1)
+        self.performance_frame.rowconfigure(1, weight=1)
+
+        # 启动性能监控更新
+        self.update_performance_monitoring()
+
+    def clear_cache_and_update(self):
+        """清理缓存并更新状态"""
+        self.clear_cache()
+        self.cache_info_label.config(text="缓存状态: 已清理")
+        self.log_experiment("cache_cleared", "用户手动清理缓存")
+
+    def save_config_and_notify(self):
+        """保存配置并通知"""
+        self.save_config()
+        self.config_status_label.config(text="配置状态: 已保存")
+        self.log_experiment("config_saved", "用户保存配置")
+
+    def load_config_and_notify(self):
+        """加载配置并通知"""
+        self.load_config()
+        self.config_status_label.config(text="配置状态: 已重新加载")
+        self.log_experiment("config_loaded", "用户重新加载配置")
+
+    def update_performance_monitoring(self):
+        """更新性能监控图表"""
+        if not self.resource_monitoring:
+            return
+
+        try:
+            # 清除图形
+            self.performance_figure.clear()
+
+            # 创建子图
+            fig = self.performance_figure
+            gs = fig.add_gridspec(2, 2, hspace=0.3, wspace=0.3)
+
+            # CPU使用率
+            if self.system_stats['cpu']:
+                ax1 = fig.add_subplot(gs[0, 0])
+                time_points = list(range(len(self.system_stats['cpu'])))
+                ax1.plot(time_points, self.system_stats['cpu'], 'b-', linewidth=2)
+                ax1.set_title('CPU使用率 (%)')
+                ax1.set_xlabel('时间')
+                ax1.set_ylabel('使用率 (%)')
+                ax1.grid(True, alpha=0.3)
+                ax1.set_ylim(0, 100)
+
+            # 内存使用率
+            if self.system_stats['memory']:
+                ax2 = fig.add_subplot(gs[0, 1])
+                time_points = list(range(len(self.system_stats['memory'])))
+                ax2.plot(time_points, self.system_stats['memory'], 'r-', linewidth=2)
+                ax2.set_title('内存使用率 (%)')
+                ax2.set_xlabel('时间')
+                ax2.set_ylabel('使用率 (%)')
+                ax2.grid(True, alpha=0.3)
+                ax2.set_ylim(0, 100)
+
+            # GPU使用率
+            if self.system_stats['gpu']:
+                ax3 = fig.add_subplot(gs[1, 0])
+                time_points = list(range(len(self.system_stats['gpu'])))
+                ax3.plot(time_points, self.system_stats['gpu'], 'g-', linewidth=2)
+                ax3.set_title('GPU使用率 (%)')
+                ax3.set_xlabel('时间')
+                ax3.set_ylabel('使用率 (%)')
+                ax3.grid(True, alpha=0.3)
+                ax3.set_ylim(0, 100)
+
+            # 缓存信息
+            ax4 = fig.add_subplot(gs[1, 1])
+            ax4.axis('off')
+
+            cache_info = f"""缓存状态信息:
+
+图像缓存: {len(self.image_cache)} 项
+图形缓存: {len(self.figure_cache)} 项
+PIL缓存: {len(self.photo_cache)} 项
+
+训练历史: {len(self.training_history)} 条
+实验日志: {len(self.experiment_log)} 条
+模型检查点: {len(self.model_checkpoints)} 个
+
+总内存使用: {psutil.virtual_memory().percent:.1f}%
+可用内存: {psutil.virtual_memory().available / 1024**3:.1f}GB"""
+
+            ax4.text(0.1, 0.9, cache_info, transform=ax4.transAxes,
+                    fontsize=10, verticalalignment='top', fontfamily='monospace',
+                    bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.8))
+
+            self.performance_canvas.draw()
+
+            # 更新性能优化建议
+            tips = self.get_performance_optimization_tips()
+            self.performance_tips_text.delete(1.0, tk.END)
+            if tips:
+                self.performance_tips_text.insert(tk.END, "优化建议:\n\n")
+                for tip in tips:
+                    self.performance_tips_text.insert(tk.END, f"• {tip}\n")
+            else:
+                self.performance_tips_text.insert(tk.END, "当前系统性能良好，无特殊建议。")
+
+        except Exception as e:
+            print(f"性能监控更新错误: {e}")
+
+        # 每5秒更新一次
+        self.root.after(5000, self.update_performance_monitoring)
 
     def toggle_language(self):
         """切换界面语言"""
@@ -1138,9 +1523,41 @@ class ResNet50CatDogGUI:
         """更新状态栏"""
         self.status_label.config(text=message)
 
+    def cleanup(self):
+        """清理资源，确保线程安全退出"""
+        # 停止训练
+        if self.is_training:
+            self.stop_training = True
+
+        # 停止资源监控
+        self.stop_resource_monitoring()
+
+        # 清理缓存
+        self.clear_cache()
+
+        # 保存最终配置
+        self.save_config()
+
+        # 保存实验日志
+        if self.experiment_log:
+            try:
+                with open('experiment_log.json', 'w', encoding='utf-8') as f:
+                    json.dump(self.experiment_log, f, indent=2, ensure_ascii=False)
+            except Exception as e:
+                print(f"实验日志保存失败: {e}")
+
     def run(self):
         """启动应用程序"""
+        # 设置关闭事件处理
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+        # 启动主循环
         self.root.mainloop()
+
+    def on_closing(self):
+        """窗口关闭事件处理"""
+        self.cleanup()
+        self.root.destroy()
 
 # 保留原有的函数，供GUI调用
 def setup_data_transforms():
