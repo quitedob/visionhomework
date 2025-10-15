@@ -1,5 +1,9 @@
 # IEEE 802.3以太网帧封装工具
 # 实现IEEE 802.3标准的以太网帧封装功能
+#
+# 作者：张钊洋
+# 教学班：1216
+# 学号：202313407492
 
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -56,6 +60,7 @@ class EthernetFrameEncapsulator:
         main_frame.columnconfigure(0, weight=1)
         # 调整输出区域的行权重，使其可以扩展
         main_frame.rowconfigure(3, weight=1)
+        main_frame.rowconfigure(4, weight=0)  # 为署名留出空间
 
         # 标题
         title_label = ttk.Label(main_frame, text="IEEE 802.3以太网帧封装工具",
@@ -70,6 +75,13 @@ class EthernetFrameEncapsulator:
 
         # 输出区域
         self.create_output_section(main_frame)
+
+        # 署名信息
+        signature_label = ttk.Label(main_frame,
+                                   text="作者：张钊洋 | 教学班：1216 | 学号：202313407492",
+                                   style='Normal.TLabel',
+                                   foreground='gray')
+        signature_label.grid(row=4, column=0, pady=(20, 0), sticky=tk.CENTER)
 
     def create_input_section(self, parent):
         """创建输入区域"""
