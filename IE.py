@@ -246,10 +246,7 @@ class EthernetFrameEncapsulator:
         """
         计算CRC-32校验和（IEEE 802.3标准）
 
-        使用反射/LSB-first算法实现，具备完整的健壮性：
-        - 每次操作后强制32位掩码，防止整数溢出
-        - 确保结果符合IEEE 802.3标准
-        - 避免Python整数超长位污染结果
+        使用字节级CRC-32算法实现，这是正确的实现方式。
 
         Args:
             data: 要计算CRC的字节数据
@@ -257,29 +254,17 @@ class EthernetFrameEncapsulator:
         Returns:
             bytes: 4字节的小端序CRC值
         """
-        # 初始CRC值（全1）
         crc = 0xFFFFFFFF
 
         for byte in data:
-            # 与当前字节进行异或
             crc ^= byte
-
-            # 对每个位进行处理
             for _ in range(8):
                 if crc & 1:
-                    # 如果最低位为1，右移后与多项式异或
                     crc = (crc >> 1) ^ self.CRC_POLYNOMIAL
                 else:
-                    # 如果最低位为0，仅右移
                     crc >>= 1
 
-                # 【健壮性改进】每次移位后强制32位掩码
-                crc &= 0xFFFFFFFF
-
-        # 【健壮性改进】循环结束后按位取反并强制32位掩码
         final_crc = (~crc) & 0xFFFFFFFF
-
-        # 以太网FCS使用小端字节序
         return final_crc.to_bytes(4, byteorder='little')
 
     def calculate_crc32_optimized(self, data):
@@ -338,10 +323,10 @@ class EthernetFrameEncapsulator:
         # IEEE 802.3标准测试向量
         test_cases = [
             # (输入数据, 期望的CRC-32小端字节序结果)
-            (b"", b"\xFF\xFF\xFF\xFF"),  # 空数据
-            (b"A", b"\x48\xF4\xE2\x1C"),  # 单字节'A'
-            (b"123456789", b"\xCB\xF4\x39\x26"),  # 标准测试字符串
-            (b"Hello World!", b"\x39\xA5\x1B\x5E"),  # 常用测试字符串
+            (b"", b"\x00\x00\x00\x00"),  # 空数据
+            (b"A", b"\x8B\x9E\xD9\xD3"),  # 单字节'A'
+            (b"123456789", b"\x26\x39\xF4\xCB"),  # 标准测试字符串
+            (b"Hello World!", b"\xA3\x1C\x29\x1C"),  # 常用测试字符串
         ]
 
         print("CRC-32 实现测试:")
@@ -356,10 +341,10 @@ class EthernetFrameEncapsulator:
             print(f"数据: {data}")
             print(f"期望CRC: {expected.hex().upper()}")
             print(f"计算CRC: {calculated.hex().upper()}")
-            print(f"结果: {'✓ 通过' if passed else '✗ 失败'}")
+            print(f"结果: {'PASS' if passed else 'FAIL'}")
             print("-" * 30)
 
-        print(f"总体结果: {'✓ 所有测试通过' if all_passed else '✗ 存在测试失败'}")
+        print(f"总体结果: {'所有测试通过' if all_passed else '存在测试失败'}")
         return all_passed
 
     def run_crc_test(self):
