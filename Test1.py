@@ -765,15 +765,30 @@ class ImageProcessingExperiment:
             if channels >= 3:
                 # 分离BGR通道
                 b, g, r = cv2.split(self.original_image)
-                result = [
-                    cv2.cvtColor(b, cv2.COLOR_GRAY2BGR),  # Blue
-                    cv2.cvtColor(g, cv2.COLOR_GRAY2BGR),  # Green
-                    cv2.cvtColor(r, cv2.COLOR_GRAY2BGR)   # Red
-                ]
+
+                # 创建全零图像作为基础
+                h, w = self.original_image.shape[:2]
+                zero_img = np.zeros((h, w, 3), dtype=np.uint8)
+
+                # 正确创建彩色通道图像：每个通道只显示对应的颜色
+                blue_channel = zero_img.copy()
+                blue_channel[:, :, 0] = b  # 只在蓝色通道放置值
+
+                green_channel = zero_img.copy()
+                green_channel[:, :, 1] = g  # 只在绿色通道放置值
+
+                red_channel = zero_img.copy()
+                red_channel[:, :, 2] = r  # 只在红色通道放置值
+
+                result = [blue_channel, green_channel, red_channel]
+
                 # 如果有第四个通道（Alpha），也添加进来
                 if channels >= 4:
                     _, _, _, a = cv2.split(self.original_image)
-                    result.append(cv2.cvtColor(a, cv2.COLOR_GRAY2BGR))  # Alpha
+                    alpha_channel = zero_img.copy()
+                    # Alpha通道通常显示为灰度
+                    alpha_channel[:, :, :] = cv2.cvtColor(a, cv2.COLOR_GRAY2BGR)
+                    result.append(alpha_channel)
                 return result
             else:
                 # 其他通道数的处理
@@ -999,7 +1014,7 @@ class ImageProcessingExperiment:
             combined_width = pil_img1.width + pil_img2.width + 40  # 40px gap
             combined_height = max(pil_img1.height, pil_img2.height) + 80  # Extra space for labels
 
-            combined_img = Image.new('RGB', (combined_width, combined_height), color='white')
+            combined_img = Image.new('RGB', (combined_width, combined_height), color='black')
 
             # Paste images
             y_offset = 40
