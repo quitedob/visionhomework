@@ -81,7 +81,7 @@ class EthernetFrameEncapsulator:
                                    text="作者：张钊洋 | 教学班：1216 | 学号：202313407492",
                                    style='Normal.TLabel',
                                    foreground='gray')
-        signature_label.grid(row=4, column=0, pady=(20, 0), sticky=tk.CENTER)
+        signature_label.grid(row=4, column=0, pady=(20, 0), sticky="")
 
     def create_input_section(self, parent):
         """创建输入区域"""
