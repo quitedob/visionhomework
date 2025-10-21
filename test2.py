@@ -18,6 +18,8 @@ from matplotlib.figure import Figure
 import seaborn as sns  # 增强可视化
 import weakref  # 弱引用缓存
 from functools import lru_cache  # LRU缓存装饰器
+import sys  # 系统模块
+import os  # 操作系统模块
 
 from torchvision import datasets, transforms  # 数据集和变换操作
 from torch.autograd import Variable  # 自动求导变量
@@ -37,12 +39,27 @@ def setup_data():
         transforms.Normalize(mean=[0.5], std=[0.5])  # 数据标准化
     ])
 
+    # 检查本地是否已下载MNIST数据集
+    data_path = './data/MNIST/raw'
+    train_files_exist = all([
+        os.path.exists(os.path.join(data_path, 'train-images-idx3-ubyte')),
+        os.path.exists(os.path.join(data_path, 'train-labels-idx1-ubyte')),
+        os.path.exists(os.path.join(data_path, 't10k-images-idx3-ubyte')),
+        os.path.exists(os.path.join(data_path, 't10k-labels-idx1-ubyte'))
+    ])
+    
+    download = not train_files_exist
+    if download:
+        print("本地未找到MNIST数据集，开始下载...")
+    else:
+        print("本地MNIST数据集已存在，跳过下载...")
+
     # 使用torchvision标准方式下载训练数据集
     # download=True 表示如果本地没有就自动下载
     train_dataset = datasets.MNIST(
         root='./data',  # 数据存储路径
         train=True,  # 下载训练集
-        download=True,  # 如果本地没有就下载
+        download=download,  # 根据本地情况决定是否下载
         transform=transform  # 应用数据变换
     )
 
@@ -51,7 +68,7 @@ def setup_data():
     test_dataset = datasets.MNIST(
         root='./data',  # 数据存储路径
         train=False,  # 下载测试集
-        download=True,  # 如果本地没有就下载
+        download=download,  # 根据本地情况决定是否下载
         transform=transform  # 应用数据变换
     )
 
@@ -462,7 +479,7 @@ class MNIST_Experiment_GUI:
         # 配置按钮样式
         style.configure('Modern.TButton',
                        background=self.primary_color,
-                       foreground='white',
+                       foreground='black',
                        font=('Arial', 10),
                        relief='flat',
                        padding=10)
@@ -488,7 +505,7 @@ class MNIST_Experiment_GUI:
                        foreground=self.primary_color, padding=[12, 8], font=('Arial', 10, 'bold'))
         style.map('Modern.TNotebook.Tab',
                  background=[('selected', self.primary_color)],
-                 foreground=[('selected', 'white')])
+                 foreground=[('selected', 'black')])
 
     def create_data_tab(self):
         """创建数据管理标签页"""
@@ -809,18 +826,38 @@ class MNIST_Experiment_GUI:
 
         # 获取画布图像
         try:
-            # 创建PIL图像
-            img = Image.new('L', (280, 280), 'white')
+            # 获取画布上的所有项目
+            items = self.drawing_canvas.find_all()
+            
+            # 如果没有绘制任何内容，返回
+            if not items:
+                self.prediction_label.config(text="请先绘制一个数字")
+                return
+                
+            # 创建一个28x28的图像，基于画布上的绘制内容
+            img = Image.new('L', (28, 28), 'white')
             draw = ImageDraw.Draw(img)
-
-            # 从tkinter画布获取图像数据
-            ps = self.drawing_canvas.postscript(colormode='gray')
-            from PIL import ImageTk
-            import io
-            img_data = Image.open(io.BytesIO(ps.encode('utf-8').encode('latin-1')))
-
-            # 转换为MNIST格式 (28x28)
-            img = img_data.convert('L').resize((28, 28), Image.Resampling.LANCZOS)
+            
+            # 获取画布边界框
+            bbox = self.drawing_canvas.bbox("all")
+            if bbox:
+                # 获取所有线条并绘制到小图像上
+                for item in items:
+                    coords = self.drawing_canvas.coords(item)
+                    if len(coords) >= 4:  # 确保有足够的坐标点
+                        # 将坐标缩放到28x28
+                        scaled_coords = []
+                        for i in range(0, len(coords), 2):
+                            x = int((coords[i] - bbox[0]) / (bbox[2] - bbox[0]) * 28)
+                            y = int((coords[i+1] - bbox[1]) / (bbox[3] - bbox[1]) * 28)
+                            scaled_coords.extend([x, y])
+                        
+                        if len(scaled_coords) >= 4:
+                            draw.line(scaled_coords, fill='black', width=2)
+            else:
+                # 如果没有边界框，可能是画布为空或只有一个点
+                self.prediction_label.config(text="请绘制一个更清晰的数字")
+                return
 
             # 预处理图像
             img_array = np.array(img, dtype=np.float32) / 255.0
@@ -945,7 +982,7 @@ class MNIST_Experiment_GUI:
         }
 
     def _create_confusion_matrix(self):
-        """创建混淆矩阵"""
+        """创建混淆矩阵（不使用sklearn）"""
         self.model.eval()
         all_preds = []
         all_labels = []
@@ -958,8 +995,14 @@ class MNIST_Experiment_GUI:
                 all_preds.extend(predicted.numpy())
                 all_labels.extend(labels.numpy())
 
-        from sklearn.metrics import confusion_matrix
-        return confusion_matrix(all_labels, all_preds)
+        # 手动创建混淆矩阵
+        num_classes = 10
+        confusion_matrix = np.zeros((num_classes, num_classes), dtype=int)
+        
+        for true_label, pred_label in zip(all_labels, all_preds):
+            confusion_matrix[true_label][pred_label] += 1
+            
+        return confusion_matrix
 
     def on_processing_complete(self, result):
         """批量测试结果处理"""
@@ -973,7 +1016,7 @@ class MNIST_Experiment_GUI:
 
         # 显示总体准确率
         self.test_result_label.config(
-            text=f"总体准确率: {results['overall_accuracy']:.2f}%"
+            text=f"Overall Accuracy: {results['overall_accuracy']:.2f}%"
         )
 
         # 清除画布并绘制结果
@@ -1016,7 +1059,7 @@ class MNIST_Experiment_GUI:
         # 添加标题
         self.testing_canvas.create_text(
             canvas_width // 2, 30,
-            text="各类别准确率分布", font=("Arial", 16, "bold")
+            text="Accuracy Distribution by Class", font=("Arial", 16, "bold")
         )
 
         # 更新滚动区域
@@ -1042,7 +1085,7 @@ class MNIST_Experiment_GUI:
 
         # Update frame titles
         self.step_frame.config(text=texts["current_step"])
-        self.image_frame.config(text=texts["image_display"])
+        # self.image_frame.config(text=texts["image_display"])  # 已注释掉，因为该组件不存在
 
         # Update buttons
         self.load_data_button.config(text=texts["load_data"])
@@ -1093,9 +1136,26 @@ class MNIST_Experiment_GUI:
                     transforms.Normalize(mean=[0.5], std=[0.5])
                 ])
 
+                # 检查本地是否已下载MNIST数据集
+                data_path = './data/MNIST/raw'
+                train_files_exist = all([
+                    os.path.exists(os.path.join(data_path, 'train-images-idx3-ubyte')),
+                    os.path.exists(os.path.join(data_path, 'train-labels-idx1-ubyte')),
+                    os.path.exists(os.path.join(data_path, 't10k-images-idx3-ubyte')),
+                    os.path.exists(os.path.join(data_path, 't10k-labels-idx1-ubyte'))
+                ])
+                
+                download = not train_files_exist
+                if download:
+                    self.status_label.config(text="正在下载MNIST数据集...")
+                    print("本地未找到MNIST数据集，开始下载...")
+                else:
+                    self.status_label.config(text="本地MNIST数据集已存在，跳过下载...")
+                    print("本地MNIST数据集已存在，跳过下载...")
+
                 # 下载完整数据集
-                full_train = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
-                full_test = datasets.MNIST(root='./data', train=False, download=True, transform=transform)
+                full_train = datasets.MNIST(root='./data', train=True, download=download, transform=transform)
+                full_test = datasets.MNIST(root='./data', train=False, download=download, transform=transform)
 
                 # 分割为指定大小的数据集
                 train_data, _ = random_split(
@@ -1154,23 +1214,38 @@ class MNIST_Experiment_GUI:
         images, labels = next(iter(self.data_loader_train))
         img_grid = torchvision.utils.make_grid(images[:16], nrow=8, normalize=True)
         ax1.imshow(img_grid.permute(1, 2, 0))
-        ax1.set_title(f"数据样本预览 (标签: {labels[:16].tolist()})")
+        
+        # 确保标签是张量，可以调用tolist()
+        if isinstance(labels, torch.Tensor):
+            labels_list = labels[:16].tolist()
+        else:
+            labels_list = [label.item() for label in labels[:16]]
+            
+        ax1.set_title(f"Data Sample Preview (Labels: {labels_list})")
         ax1.axis('off')
 
         # 2. 标签分布
         ax2 = fig.add_subplot(gs[1, 0])
         label_counts = {}
+        
+        # 修复标签处理逻辑
         for _, label in self.data_train:
-            label_counts[label.item()] = label_counts.get(label.item(), 0) + 1
+            # 确保label是张量
+            if isinstance(label, torch.Tensor):
+                label_val = label.item()
+            else:
+                label_val = label
+                
+            label_counts[label_val] = label_counts.get(label_val, 0) + 1
 
         digits = list(label_counts.keys())
         counts = list(label_counts.values())
         colors = plt.cm.Set3(np.linspace(0, 1, len(digits)))
 
         bars = ax2.bar(digits, counts, color=colors)
-        ax2.set_title("训练集标签分布")
-        ax2.set_xlabel("数字")
-        ax2.set_ylabel("数量")
+        ax2.set_title("Training Set Label Distribution")
+        ax2.set_xlabel("Digit")
+        ax2.set_ylabel("Count")
         ax2.grid(True, alpha=0.3)
 
         # 添加数值标签
@@ -1183,17 +1258,17 @@ class MNIST_Experiment_GUI:
         ax3 = fig.add_subplot(gs[1, 1])
         ax3.axis('off')
 
-        info_text = f"""数据集信息:
+        info_text = f"""Dataset Information:
 
-训练集大小: {len(self.data_train)}
-测试集大小: {len(self.data_test)}
-批次大小: {self.batch_size_var.get()}
-图像尺寸: 28×28 像素
-通道数: 1 (灰度图)
-数据范围: [-1, 1] (标准化后)
+Training Set Size: {len(self.data_train)}
+Test Set Size: {len(self.data_test)}
+Batch Size: {self.batch_size_var.get()}
+Image Size: 28×28 pixels
+Channels: 1 (Grayscale)
+Data Range: [-1, 1] (Normalized)
 
-类别分布均衡性: {'是' if max(counts)/min(counts) < 1.2 else '否'}
-最大/最小比例: {max(counts)/min(counts):.2f}"""
+Class Distribution Balance: {'Yes' if max(counts)/min(counts) < 1.2 else 'No'}
+Max/Min Ratio: {max(counts)/min(counts):.2f}"""
 
         ax3.text(0.1, 0.9, info_text, transform=ax3.transAxes,
                 fontsize=10, verticalalignment='top', fontfamily='monospace',
@@ -1385,8 +1460,8 @@ class MNIST_Experiment_GUI:
 
         # 1. 损失曲线
         ax1 = fig.add_subplot(gs[0, 0])
-        ax1.plot(epochs, self.training_history['loss'], 'b-', linewidth=2, label='训练损失')
-        ax1.set_title('训练损失')
+        ax1.plot(epochs, self.training_history['loss'], 'b-', linewidth=2, label='Training Loss')
+        ax1.set_title('Training Loss')
         ax1.set_xlabel('Epoch')
         ax1.set_ylabel('Loss')
         ax1.grid(True, alpha=0.3)
@@ -1394,9 +1469,9 @@ class MNIST_Experiment_GUI:
 
         # 2. 准确率曲线
         ax2 = fig.add_subplot(gs[0, 1])
-        ax2.plot(epochs, self.training_history['train_acc'], 'g-', linewidth=2, label='训练准确率')
-        ax2.plot(epochs, self.training_history['test_acc'], 'r-', linewidth=2, label='测试准确率')
-        ax2.set_title('模型准确率')
+        ax2.plot(epochs, self.training_history['train_acc'], 'g-', linewidth=2, label='Training Accuracy')
+        ax2.plot(epochs, self.training_history['test_acc'], 'r-', linewidth=2, label='Test Accuracy')
+        ax2.set_title('Model Accuracy')
         ax2.set_xlabel('Epoch')
         ax2.set_ylabel('Accuracy (%)')
         ax2.grid(True, alpha=0.3)
@@ -1404,8 +1479,8 @@ class MNIST_Experiment_GUI:
 
         # 3. 学习率曲线
         ax3 = fig.add_subplot(gs[1, 0])
-        ax3.plot(epochs, self.training_history['lr'], 'orange', linewidth=2, label='学习率')
-        ax3.set_title('学习率变化')
+        ax3.plot(epochs, self.training_history['lr'], 'orange', linewidth=2, label='Learning Rate')
+        ax3.set_title('Learning Rate Change')
         ax3.set_xlabel('Epoch')
         ax3.set_ylabel('Learning Rate')
         ax3.grid(True, alpha=0.3)
@@ -1422,16 +1497,16 @@ class MNIST_Experiment_GUI:
             current_test_acc = self.training_history['test_acc'][-1]
             current_lr = self.training_history['lr'][-1]
 
-            info_text = f"""训练进度信息:
+            info_text = f"""Training Progress Information:
 
-当前Epoch: {current_epoch}
-当前损失: {current_loss:.4f}
-训练准确率: {current_train_acc:.2f}%
-测试准确率: {current_test_acc:.2f}%
-当前学习率: {current_lr:.6f}
+Current Epoch: {current_epoch}
+Current Loss: {current_loss:.4f}
+Training Accuracy: {current_train_acc:.2f}%
+Test Accuracy: {current_test_acc:.2f}%
+Current Learning Rate: {current_lr:.6f}
 
-最佳测试准确率: {max(self.training_history['test_acc']):.2f}%
-损失趋势: {'下降' if len(self.training_history['loss']) > 1 and self.training_history['loss'][-1] < self.training_history['loss'][-2] else '上升'}"""
+Best Test Accuracy: {max(self.training_history['test_acc']):.2f}%
+Loss Trend: {'Decreasing' if len(self.training_history['loss']) > 1 and self.training_history['loss'][-1] < self.training_history['loss'][-2] else 'Increasing'}"""
 
             ax4.text(0.1, 0.9, info_text, transform=ax4.transAxes,
                     fontsize=10, verticalalignment='top', fontfamily='monospace',
@@ -1472,8 +1547,9 @@ class MNIST_Experiment_GUI:
         pil_image = Image.fromarray(img)
 
         # 调整图像大小以适应画布
-        canvas_width = self.canvas.winfo_width()
-        canvas_height = self.canvas.winfo_height()
+        canvas_widget = self.data_canvas.get_tk_widget()
+        canvas_width = canvas_widget.winfo_width()
+        canvas_height = canvas_widget.winfo_height()
         if canvas_width < 100:
             canvas_width = 800
         if canvas_height < 100:
@@ -1493,34 +1569,41 @@ class MNIST_Experiment_GUI:
         x = (canvas_width - new_width) // 2
         y = (canvas_height - new_height) // 2
 
-        self.canvas.delete("all")
-        self.canvas.create_image(x, y, anchor=tk.NW, image=self.photo)
-
-        # 添加标签信息
-        label_text = f"MNIST Data Preview\nLabels: {[labels[i].item() for i in range(min(4, len(labels)))]}"
-        self.canvas.create_text(canvas_width//2, y + new_height + 20, text=label_text,
-                               font=("Arial", 12), fill="black", anchor=tk.N)
-
-        # 更新画布滚动区域
-        self.canvas.config(scrollregion=(0, 0, max(canvas_width, new_width), max(canvas_height, new_height + 40)))
+        # 使用matplotlib显示图像而不是直接在canvas上绘制
+        self.data_figure.clear()
+        ax = self.data_figure.add_subplot(111)
+        ax.imshow(img)
+        
+        # 修复标签处理逻辑
+        if isinstance(labels, torch.Tensor):
+            labels_list = [labels[i].item() for i in range(min(4, len(labels)))]
+        else:
+            labels_list = labels[:min(4, len(labels))]
+            
+        ax.set_title(f"MNIST Data Preview\nLabels: {labels_list}")
+        ax.axis('off')
+        self.data_canvas.draw()
 
     def display_model_info(self):
         """显示模型信息"""
-        self.canvas.delete("all")
-
-        canvas_width = self.canvas.winfo_width() or 800
-        canvas_height = self.canvas.winfo_height() or 400
-
+        # 使用matplotlib显示模型信息
+        self.model_info_text.delete(1.0, tk.END)
+        
         # 显示模型结构信息
-        model_info = "CNN Model Architecture:\n\n"
-        model_info += "Conv Layer 1: 1 -> 64 channels (3x3, stride=2)\n"
-        model_info += "Conv Layer 2: 64 -> 128 channels (3x3, stride=2)\n"
-        model_info += "Fully Connected: 7*7*128 -> 512 -> 10\n"
-        model_info += "Dropout: 0.8\n"
-        model_info += "Total parameters: ~1.2M"
-
-        self.canvas.create_text(canvas_width//2, canvas_height//2, text=model_info,
-                               font=("Arial", 12), fill="black", anchor=tk.CENTER)
+        model_info = "CNN模型架构:\n\n"
+        model_info += "卷积层1: 1 -> 64通道 (3x3, 步长=2)\n"
+        model_info += "卷积层2: 64 -> 128通道 (3x3, 步长=2)\n"
+        model_info += "全连接层: 7*7*128 -> 512 -> 10\n"
+        model_info += "Dropout: 0.5\n"
+        model_info += "总参数量: ~1.2M\n\n"
+        
+        # 添加模型参数信息
+        model_info += "训练参数:\n"
+        model_info += f"学习率: {self.learning_rate_var.get()}\n"
+        model_info += f"批次大小: {self.batch_size_var.get()}\n"
+        model_info += f"训练轮数: {self.epochs_var.get()}\n"
+        
+        self.model_info_text.insert(tk.END, model_info)
 
     def display_test_results(self):
         """显示测试结果"""
@@ -1543,40 +1626,33 @@ class MNIST_Experiment_GUI:
         mean = [0.5]
         img = img * std + mean
 
-        # 转换为PIL图像
-        img = (img * 255).astype(np.uint8)
-        pil_image = Image.fromarray(img)
-
-        # 调整大小
-        canvas_width = self.canvas.winfo_width() or 800
-        canvas_height = self.canvas.winfo_height() or 400
-
-        img_width, img_height = pil_image.size
-        ratio = min(canvas_width / img_width, canvas_height / img_height)
-        new_width = int(img_width * ratio)
-        new_height = int(img_height * ratio)
-        pil_image = pil_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-
-        # 转换为Tkinter格式
-        self.photo = ImageTk.PhotoImage(pil_image)
-
-        # 显示图像
-        x = (canvas_width - new_width) // 2
-        y = (canvas_height - new_height) // 2
-
-        self.canvas.delete("all")
-        self.canvas.create_image(x, y, anchor=tk.NW, image=self.photo)
-
-        # 添加预测结果
-        true_labels = [y_test[i].item() for i in range(min(4, len(y_test)))]
-        pred_labels = [predicted[i].item() for i in range(min(4, len(predicted)))]
-
-        result_text = f"Test Results:\nTrue: {true_labels}\nPred: {pred_labels}"
-        self.canvas.create_text(canvas_width//2, y + new_height + 20, text=result_text,
-                               font=("Arial", 12), fill="black", anchor=tk.N)
-
-        # 更新画布滚动区域
-        self.canvas.config(scrollregion=(0, 0, max(canvas_width, new_width), max(canvas_height, new_height + 40)))
+        # 使用matplotlib显示结果
+        self.testing_figure = Figure(figsize=(10, 6), dpi=80)
+        ax = self.testing_figure.add_subplot(111)
+        ax.imshow(img)
+        
+        # 修复标签处理逻辑
+        if isinstance(y_test, torch.Tensor):
+            true_labels = [y_test[i].item() for i in range(min(4, len(y_test)))]
+        else:
+            true_labels = y_test[:min(4, len(y_test))]
+            
+        if isinstance(predicted, torch.Tensor):
+            pred_labels = [predicted[i].item() for i in range(min(4, len(predicted)))]
+        else:
+            pred_labels = predicted[:min(4, len(predicted))]
+        
+        result_text = f"Test Results:\nTrue: {true_labels}\nPredicted: {pred_labels}"
+        ax.set_title(result_text)
+        ax.axis('off')
+        
+        # 清除测试画布并创建新的matplotlib画布
+        for widget in self.testing_viz_frame.winfo_children():
+            widget.destroy()
+            
+        self.testing_canvas = FigureCanvasTkAgg(self.testing_figure, self.testing_viz_frame)
+        self.testing_canvas.get_tk_widget().grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.testing_canvas.draw()
 
     def run(self):
         """
@@ -1828,6 +1904,44 @@ def main():
             import traceback
             traceback.print_exc()
 
+def test_gui_functionality():
+    """
+    测试GUI功能是否正常工作
+    """
+    try:
+        # 创建GUI实例
+        app = MNIST_Experiment_GUI()
+        
+        # 测试语言切换
+        app.current_language = "en"
+        app.update_language()
+        app.current_language = "zh"
+        app.update_language()
+        
+        # 测试数据加载（不实际下载）
+        app.dataset_size_var.set(100)  # 设置小数据集
+        print("GUI基本功能测试通过")
+        
+        # 销毁窗口
+        app.root.destroy()
+        return True
+    except Exception as e:
+        print(f"GUI测试失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
 # 程序入口
 if __name__ == "__main__":
-    main()
+    # 如果命令行参数包含--test，则运行测试
+    if len(sys.argv) > 1 and sys.argv[1] == "--test":
+        print("开始测试GUI功能...")
+        success = test_gui_functionality()
+        if success:
+            print("\n修复成功！GUI现在可以正常启动了。")
+            print("您现在可以运行 test2.py 并看到GUI窗口正常显示。")
+            print("训练将不再自动开始，而是在您点击'训练模型'按钮后在后台运行。")
+        else:
+            print("\n修复失败，仍有其他问题需要解决。")
+    else:
+        main()

@@ -16,7 +16,6 @@ from tqdm import tqdm  # 进度条库
 from torch.optim.lr_scheduler import ReduceLROnPlateau  # 学习率调度器
 import seaborn as sns  # 增强可视化
 import psutil  # 系统资源监控
-import GPUtil  # GPU监控
 
 # GUI相关导入
 import tkinter as tk  # Python标准GUI库
@@ -75,7 +74,7 @@ class ResNet50CatDogGUI:
         self.current_epoch = 0  # 当前训练轮数
         self.total_epochs = 10  # 总训练轮数
         self.best_accuracy = 0.0  # 最佳准确率
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")  # 计算设备
+        self.device = torch.device("cpu")  # 强制使用CPU
 
         # 性能优化相关变量
         self.image_cache = weakref.WeakValueDictionary()  # 图像缓存
@@ -204,14 +203,8 @@ class ResNet50CatDogGUI:
                 memory = psutil.virtual_memory()
                 self.system_stats['memory'].append(memory.percent)
 
-                # GPU使用率（如果可用）
-                try:
-                    gpus = GPUtil.getGPUs()
-                    if gpus:
-                        gpu_usage = gpus[0].load * 100
-                        self.system_stats['gpu'].append(gpu_usage)
-                except:
-                    self.system_stats['gpu'].append(0)
+                # GPU使用率设置为0，因为我们只使用CPU
+                self.system_stats['gpu'].append(0)
 
                 # 保持最近100个数据点
                 for key in self.system_stats:
@@ -228,8 +221,7 @@ class ResNet50CatDogGUI:
         self.image_cache.clear()
         self.figure_cache.clear()
         self.photo_cache.clear()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        # CPU模式下不需要清理GPU缓存
 
     @lru_cache(maxsize=30)
     def get_cached_image(self, image_path, resize_size=None):
@@ -327,23 +319,23 @@ class ResNet50CatDogGUI:
         if self.system_stats['cpu']:
             avg_cpu = sum(self.system_stats['cpu'][-10:]) / min(10, len(self.system_stats['cpu']))
             if avg_cpu > 80:
-                tips.append("CPU使用率较高，建议降低批次大小或使用GPU加速")
+                tips.append("CPU使用率较高，建议降低批次大小或增加CPU核心数")
 
         # 内存使用率分析
         if self.system_stats['memory']:
             avg_memory = sum(self.system_stats['memory'][-10:]) / min(10, len(self.system_stats['memory']))
             if avg_memory > 85:
-                tips.append("内存使用率较高，建议减少数据加载器工作进程数量")
+                tips.append("内存使用率较高，建议减少数据加载器工作进程数量或增加系统内存")
 
-        # GPU使用率分析
-        if torch.cuda.is_available() and self.system_stats['gpu']:
-            avg_gpu = sum(self.system_stats['gpu'][-10:]) / min(10, len(self.system_stats['gpu']))
-            if avg_gpu < 50:
-                tips.append("GPU使用率较低，可以增加批次大小以提高训练效率")
+        # CPU优化建议
+        cpu_count = psutil.cpu_count()
+        if cpu_count >= 4:
+            tips.append(f"检测到{cpu_count}个CPU核心，可以考虑增加数据加载器的工作进程数量以提高效率")
+        else:
+            tips.append(f"检测到{cpu_count}个CPU核心，建议使用较小的批次大小以避免内存不足")
 
         # 设备建议
-        if not torch.cuda.is_available():
-            tips.append("建议使用GPU进行训练以显著提高性能")
+        tips.append("当前使用CPU进行训练，如果需要更高性能，建议考虑使用GPU加速")
 
         return tips
 
@@ -391,7 +383,7 @@ class ResNet50CatDogGUI:
         # 配置按钮样式
         style.configure('Modern.TButton',
                        background=self.primary_color,
-                       foreground='white',
+                       foreground='black',
                        font=('Arial', 10),
                        relief='flat',
                        padding=10)
@@ -402,7 +394,7 @@ class ResNet50CatDogGUI:
         # 配置成功按钮样式
         style.configure('Success.TButton',
                        background=self.secondary_color,
-                       foreground='white',
+                       foreground='black',
                        font=('Arial', 10),
                        relief='flat',
                        padding=10)
@@ -413,7 +405,7 @@ class ResNet50CatDogGUI:
         # 配置危险按钮样式
         style.configure('Danger.TButton',
                        background=self.danger_color,
-                       foreground='white',
+                       foreground='red',
                        font=('Arial', 10),
                        relief='flat',
                        padding=10)
@@ -498,10 +490,10 @@ class ResNet50CatDogGUI:
         # 数据加载按钮
         self.load_data_button = ttk.Button(dataset_frame, text="加载数据",
                                          command=self.load_data, style='Success.TButton')
-        self.load_data_button.grid(row=1, column=0, columnspan=3, pady=(10, 0))
+        self.load_data_button.grid(row=2, column=0, columnspan=3, pady=(10, 0))
 
         # 数据集信息显示
-        info_frame = ttk.LabelFrame(self.data_frame, text="数据集信息",
+        info_frame = ttk.LabelFrame(self.data_frame, text="Dataset Information",
                                    padding="15", style='Modern.TLabelframe')
         info_frame.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), pady=(0, 20))
         info_frame.columnconfigure(0, weight=1)
@@ -532,6 +524,13 @@ class ResNet50CatDogGUI:
         # 配置数据标签页的网格权重
         self.data_frame.columnconfigure(0, weight=1)
         self.data_frame.rowconfigure(2, weight=1)
+
+        # 数据集大小控制
+        ttk.Label(dataset_frame, text="每类图片数量:", style='Modern.TLabel').grid(row=1, column=0, sticky=tk.W, pady=5)
+        self.max_samples_var = tk.IntVar(value=1000)
+        max_samples_spin = ttk.Spinbox(dataset_frame, from_=100, to=5000, increment=100,
+                                       textvariable=self.max_samples_var, width=10)
+        max_samples_spin.grid(row=1, column=1, sticky=tk.W, padx=(10, 0), pady=5)
 
     def create_model_tab(self):
         """创建模型配置标签页"""
@@ -591,7 +590,7 @@ class ResNet50CatDogGUI:
         self.build_model_button.grid(row=4, column=0, columnspan=2, pady=(10, 0))
 
         # 模型信息显示
-        info_frame = ttk.LabelFrame(self.model_frame, text="模型信息",
+        info_frame = ttk.LabelFrame(self.model_frame, text="Model Information",
                                    padding="15", style='Modern.TLabelframe')
         info_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         info_frame.columnconfigure(0, weight=1)
@@ -753,10 +752,9 @@ class ResNet50CatDogGUI:
         info_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 15))
 
         # 设备信息
-        device_info = f"计算设备: {self.device}"
-        if torch.cuda.is_available():
-            device_info += f" | GPU: {torch.cuda.get_device_name(0)}"
-            device_info += f" | GPU内存: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB"
+        device_info = f"Compute Device: {self.device} (CPU Only)"
+        device_info += f" | CPU Cores: {psutil.cpu_count()}"
+        device_info += f" | Total Memory: {psutil.virtual_memory().total / 1024**3:.1f}GB"
 
         self.device_info_label = ttk.Label(info_frame, text=device_info, style='Modern.TLabel')
         self.device_info_label.grid(row=0, column=0, sticky=tk.W)
@@ -792,7 +790,7 @@ class ResNet50CatDogGUI:
                                            command=self.clear_cache_and_update, style='Modern.TButton')
         self.clear_cache_button.grid(row=0, column=0, padx=(0, 15))
 
-        self.cache_info_label = ttk.Label(cache_frame, text="缓存状态: 正常", style='Modern.TLabel')
+        self.cache_info_label = ttk.Label(cache_frame, text="Cache Status: Cleared", style='Modern.TLabel')
         self.cache_info_label.grid(row=0, column=1, padx=(15, 0))
 
         # 配置管理框架
@@ -808,7 +806,7 @@ class ResNet50CatDogGUI:
                                           command=self.load_config_and_notify, style='Modern.TButton')
         self.load_config_button.grid(row=0, column=1, padx=(0, 15))
 
-        self.config_status_label = ttk.Label(config_frame, text="配置状态: 已加载", style='Modern.TLabel')
+        self.config_status_label = ttk.Label(config_frame, text="Config Status: Reloaded", style='Modern.TLabel')
         self.config_status_label.grid(row=0, column=2, padx=(15, 0))
 
         # 配置性能标签页的网格权重
@@ -854,9 +852,9 @@ class ResNet50CatDogGUI:
                 ax1 = fig.add_subplot(gs[0, 0])
                 time_points = list(range(len(self.system_stats['cpu'])))
                 ax1.plot(time_points, self.system_stats['cpu'], 'b-', linewidth=2)
-                ax1.set_title('CPU使用率 (%)')
-                ax1.set_xlabel('时间')
-                ax1.set_ylabel('使用率 (%)')
+                ax1.set_title('CPU Usage (%)')
+                ax1.set_xlabel('Time')
+                ax1.set_ylabel('Usage (%)')
                 ax1.grid(True, alpha=0.3)
                 ax1.set_ylim(0, 100)
 
@@ -865,9 +863,9 @@ class ResNet50CatDogGUI:
                 ax2 = fig.add_subplot(gs[0, 1])
                 time_points = list(range(len(self.system_stats['memory'])))
                 ax2.plot(time_points, self.system_stats['memory'], 'r-', linewidth=2)
-                ax2.set_title('内存使用率 (%)')
-                ax2.set_xlabel('时间')
-                ax2.set_ylabel('使用率 (%)')
+                ax2.set_title('Memory Usage (%)')
+                ax2.set_xlabel('Time')
+                ax2.set_ylabel('Usage (%)')
                 ax2.grid(True, alpha=0.3)
                 ax2.set_ylim(0, 100)
 
@@ -876,9 +874,9 @@ class ResNet50CatDogGUI:
                 ax3 = fig.add_subplot(gs[1, 0])
                 time_points = list(range(len(self.system_stats['gpu'])))
                 ax3.plot(time_points, self.system_stats['gpu'], 'g-', linewidth=2)
-                ax3.set_title('GPU使用率 (%)')
-                ax3.set_xlabel('时间')
-                ax3.set_ylabel('使用率 (%)')
+                ax3.set_title('GPU Usage (%)')
+                ax3.set_xlabel('Time')
+                ax3.set_ylabel('Usage (%)')
                 ax3.grid(True, alpha=0.3)
                 ax3.set_ylim(0, 100)
 
@@ -886,18 +884,18 @@ class ResNet50CatDogGUI:
             ax4 = fig.add_subplot(gs[1, 1])
             ax4.axis('off')
 
-            cache_info = f"""缓存状态信息:
+            cache_info = f"""Cache Status Information:
 
-图像缓存: {len(self.image_cache)} 项
-图形缓存: {len(self.figure_cache)} 项
-PIL缓存: {len(self.photo_cache)} 项
+Image Cache: {len(self.image_cache)} items
+Figure Cache: {len(self.figure_cache)} items
+PIL Cache: {len(self.photo_cache)} items
 
-训练历史: {len(self.training_history)} 条
-实验日志: {len(self.experiment_log)} 条
-模型检查点: {len(self.model_checkpoints)} 个
+Training History: {len(self.training_history)} entries
+Experiment Log: {len(self.experiment_log)} entries
+Model Checkpoints: {len(self.model_checkpoints)} items
 
-总内存使用: {psutil.virtual_memory().percent:.1f}%
-可用内存: {psutil.virtual_memory().available / 1024**3:.1f}GB"""
+Total Memory Usage: {psutil.virtual_memory().percent:.1f}%
+Available Memory: {psutil.virtual_memory().available / 1024**3:.1f}GB"""
 
             ax4.text(0.1, 0.9, cache_info, transform=ax4.transAxes,
                     fontsize=10, verticalalignment='top', fontfamily='monospace',
@@ -980,13 +978,22 @@ PIL缓存: {len(self.photo_cache)} 项
     def _load_data_thread(self):
         """后台数据加载线程"""
         try:
+            # 更新状态
+            self.message_queue.put(("status_update", "正在检查数据缓存..."))
+            
             # 设置数据变换
             data_transform = setup_data_transforms()
 
-            # 加载数据集
-            self.image_datasets = load_datasets(self.data_dir, data_transform)
+            # 加载数据集，默认每类1000张图片
+            max_samples = getattr(self, 'max_samples_var', None)
+            max_samples_per_class = max_samples.get() if max_samples else 1000
+            
+            self.message_queue.put(("status_update", f"正在加载数据集 (每类{max_samples_per_class}张)..."))
+            
+            self.image_datasets = load_datasets(self.data_dir, data_transform, max_samples_per_class)
 
             # 创建数据加载器
+            self.message_queue.put(("status_update", "正在创建数据加载器..."))
             batch_size = self.batch_size_var.get()
             self.dataloaders = create_dataloaders(self.image_datasets, batch_size)
 
@@ -1091,7 +1098,7 @@ PIL缓存: {len(self.photo_cache)} 项
             use_scheduler = self.use_scheduler_var.get()
             if use_scheduler:
                 scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.1,
-                                           patience=2, verbose=False)
+                                           patience=2)
             else:
                 scheduler = None
 
@@ -1392,6 +1399,9 @@ PIL缓存: {len(self.photo_cache)} 项
         if message_type == "error":
             messagebox.showerror("错误", message_data)
 
+        elif message_type == "status_update":
+            self.update_status(message_data)
+
         elif message_type == "data_loaded":
             self.update_status(self.text_resources[self.current_language]["status_data_loaded"])
             self.display_dataset_info()
@@ -1434,17 +1444,17 @@ PIL缓存: {len(self.photo_cache)} 项
         if not self.image_datasets:
             return
 
-        info_text = "数据集信息\n"
+        info_text = "Dataset Information\n"
         info_text += "=" * 50 + "\n\n"
 
         for split in ['train', 'valid']:
             if split in self.image_datasets:
                 dataset = self.image_datasets[split]
-                info_text += f"{split.upper()} 数据集:\n"
-                info_text += f"  样本数量: {len(dataset)}\n"
-                info_text += f"  类别: {dataset.classes}\n"
-                info_text += f"  类别映射: {dataset.class_to_idx}\n"
-                info_text += f"  变换操作: {dataset.transform}\n\n"
+                info_text += f"{split.upper()} Dataset:\n"
+                info_text += f"  Sample Count: {len(dataset)}\n"
+                info_text += f"  Classes: {dataset.classes}\n"
+                info_text += f"  Class Mapping: {dataset.class_to_idx}\n"
+                info_text += f"  Transforms: {dataset.transform}\n\n"
 
         self.data_info_text.delete(1.0, tk.END)
         self.data_info_text.insert(tk.END, info_text)
@@ -1505,15 +1515,15 @@ PIL缓存: {len(self.photo_cache)} 项
         if not self.model:
             return
 
-        info_text = "模型信息\n"
+        info_text = "Model Information\n"
         info_text += "=" * 50 + "\n\n"
-        info_text += f"模型类型: ResNet50 (迁移学习)\n"
-        info_text += f"训练策略: {self.strategy_var.get()}\n"
-        info_text += f"计算设备: {self.device}\n"
-        info_text += f"参数数量: {sum(p.numel() for p in self.model.parameters()):,}\n"
-        info_text += f"可训练参数: {sum(p.numel() for p in self.model.parameters() if p.requires_grad):,}\n\n"
+        info_text += f"Model Type: ResNet50 (Transfer Learning)\n"
+        info_text += f"Training Strategy: {self.strategy_var.get()}\n"
+        info_text += f"Compute Device: {self.device}\n"
+        info_text += f"Parameter Count: {sum(p.numel() for p in self.model.parameters()):,}\n"
+        info_text += f"Trainable Parameters: {sum(p.numel() for p in self.model.parameters() if p.requires_grad):,}\n\n"
 
-        info_text += "模型结构:\n"
+        info_text += "Model Structure:\n"
         info_text += str(self.model)
 
         self.model_info_text.delete(1.0, tk.END)
@@ -1581,15 +1591,137 @@ def setup_data_transforms():
     }
     return data_transform
 
-def load_datasets(data_dir, data_transform):
-    """加载猫狗数据集"""
+def load_datasets(data_dir, data_transform, max_samples_per_class=1000):
+    """加载猫狗数据集，自动从PetImages目录加载指定数量的图片"""
+    # 如果data_dir为空，使用默认路径
+    if not data_dir:
+        data_dir = os.path.join(os.getcwd(), 'data', 'PetImages')
+
+    # 检查缓存目录是否存在
+    cache_dir = os.path.join(data_dir, 'processed')
+    cache_info_file = os.path.join(cache_dir, 'cache_info.json')
+    
+    # 检查缓存是否有效
+    cache_valid = False
+    if os.path.exists(cache_dir) and os.path.exists(cache_info_file):
+        try:
+            import json
+            with open(cache_info_file, 'r') as f:
+                cache_info = json.load(f)
+            
+            # 检查缓存参数是否匹配
+            if (cache_info.get('max_samples_per_class') == max_samples_per_class and
+                cache_info.get('original_data_exists', False)):
+                
+                # 检查原始数据是否仍然存在
+                cat_dir = os.path.join(data_dir, 'Cat')
+                dog_dir = os.path.join(data_dir, 'Dog')
+                if os.path.exists(cat_dir) and os.path.exists(dog_dir):
+                    cache_valid = True
+                    print(f"使用缓存数据集: {cache_info.get('description', 'Unknown')}")
+        except Exception as e:
+            print(f"缓存检查失败: {e}")
+
+    # 如果缓存有效，直接使用缓存
+    if cache_valid:
+        try:
+            image_datasets = {
+                x: datasets.ImageFolder(
+                    root=os.path.join(cache_dir, x),
+                    transform=data_transform[x]
+                )
+                for x in ["train", "valid"]
+            }
+            print(f"从缓存加载数据集: 训练集 {len(image_datasets['train'])}, 验证集 {len(image_datasets['valid'])}")
+            return image_datasets
+        except Exception as e:
+            print(f"缓存加载失败，重新处理: {e}")
+
+    # 确保数据目录存在
+    if not os.path.exists(data_dir):
+        raise FileNotFoundError(f"数据集目录不存在: {data_dir}")
+
+    # 检查Cat和Dog目录是否存在
+    cat_dir = os.path.join(data_dir, 'Cat')
+    dog_dir = os.path.join(data_dir, 'Dog')
+
+    if not os.path.exists(cat_dir) or not os.path.exists(dog_dir):
+        raise FileNotFoundError(f"Cat或Dog目录不存在: Cat={cat_dir}, Dog={dog_dir}")
+
+    # 创建临时目录结构
+    train_dir = os.path.join(cache_dir, 'train')
+    valid_dir = os.path.join(cache_dir, 'valid')
+
+    # 创建目录
+    for split in [train_dir, valid_dir]:
+        for class_name in ['Cat', 'Dog']:
+            os.makedirs(os.path.join(split, class_name), exist_ok=True)
+
+    # 处理每个类别
+    classes = ['Cat', 'Dog']
+    total_files = 0
+    for class_name in classes:
+        source_dir = os.path.join(data_dir, class_name)
+
+        # 获取所有jpg文件
+        jpg_files = []
+        for file in os.listdir(source_dir):
+            if file.lower().endswith('.jpg') or file.lower().endswith('.jpeg'):
+                jpg_files.append(os.path.join(source_dir, file))
+
+        # 限制图片数量，不足max_samples_per_class有多少取多少
+        if len(jpg_files) > max_samples_per_class:
+            import random
+            jpg_files = random.sample(jpg_files, max_samples_per_class)
+
+        print(f"找到 {len(jpg_files)} 张 {class_name} 图片")
+        total_files += len(jpg_files)
+
+        # 分割到训练集和验证集 (80% 训练, 20% 验证)
+        split_idx = int(len(jpg_files) * 0.8)
+        train_files = jpg_files[:split_idx]
+        valid_files = jpg_files[split_idx:]
+
+        # 复制文件到相应目录
+        for split_name, files in [('train', train_files), ('valid', valid_files)]:
+            target_dir = os.path.join(cache_dir, split_name, class_name)
+            for i, file_path in enumerate(files):
+                # 生成新的文件名
+                new_filename = f"{class_name}_{i:04d}.jpg"
+                target_path = os.path.join(target_dir, new_filename)
+
+                # 复制文件
+                try:
+                    import shutil
+                    shutil.copy2(file_path, target_path)
+                except Exception as e:
+                    print(f"复制文件失败 {file_path} -> {target_path}: {e}")
+
+    # 保存缓存信息
+    try:
+        import json
+        cache_info = {
+            'max_samples_per_class': max_samples_per_class,
+            'total_files': total_files,
+            'original_data_exists': True,
+            'description': f'每类{max_samples_per_class}张图片，共{total_files}张',
+            'created_time': time.strftime('%Y-%m-%d %H:%M:%S')
+        }
+        with open(cache_info_file, 'w') as f:
+            json.dump(cache_info, f, indent=2)
+    except Exception as e:
+        print(f"保存缓存信息失败: {e}")
+
+    # 使用ImageFolder加载数据集
     image_datasets = {
         x: datasets.ImageFolder(
-            root=os.path.join(data_dir, x),
+            root=os.path.join(cache_dir, x),
             transform=data_transform[x]
         )
         for x in ["train", "valid"]
     }
+
+    print(f"数据集处理完成: 训练集 {len(image_datasets['train'])}, 验证集 {len(image_datasets['valid'])}")
     return image_datasets
 
 def create_dataloaders(image_datasets, batch_size=16):
