@@ -1,21 +1,86 @@
-# OpenCV Image Processing Experiment Dependencies
-# Computer Vision Library
-opencv-python>=4.5.0
+# Computer Vision and Deep Learning Experiment Dependencies
+# ==============================================================================
 
-# Numerical Computing Library
-numpy>=1.20.0
-seaborn
-# Image Processing Library
-Pillow>=8.0.0
+# Core Computer Vision Libraries
+# -----------------------------------------------------------------------------
+opencv-python==4.12.0.88        # Computer Vision Library
+numpy==2.2.6                     # Numerical Computing Library
+Pillow==11.3.0                   # Image Processing Library
 
-# PyTorch Deep Learning Framework
-torch>=1.9.0
+# Deep Learning Frameworks
+# -----------------------------------------------------------------------------
+torch==2.8.0                     # PyTorch Deep Learning Framework
+torchvision==0.23.0              # PyTorch Computer Vision Library
 
-# PyTorch Computer Vision Library
-torchvision>=0.10.0
+# Data Science and Visualization
+# -----------------------------------------------------------------------------
+matplotlib==3.10.7               # Data Visualization Library
+seaborn==0.13.2                   # Enhanced Statistical Visualization
+pandas==2.3.3                     # Data Analysis Library
 
-# Data Visualization Library
-matplotlib>=3.3.0
+# System and Performance Monitoring
+# -----------------------------------------------------------------------------
+psutil==7.1.1                     # System Resource Monitoring
+tqdm==4.67.1                      # Progress Bar Library
 
-# Progress Bar Library
-tqdm>=4.64.0
+# Web and Network Libraries
+# -----------------------------------------------------------------------------
+requests==2.32.5                  # HTTP Library
+beautifulsoup4==4.14.2            # HTML/XML Parser
+certifi==2025.10.5                # SSL Certificates
+charset-normalizer==3.4.4         # Character Encoding Detection
+urllib3==2.5.0                    # HTTP Client
+
+# Date and Time Handling
+# -----------------------------------------------------------------------------
+python-dateutil==2.9.0.post0      # Date Utilities
+pytz==2025.2                      # Time Zone Support
+tzdata==2025.2                    # Time Zone Data
+tzlocal==5.3.1                    # Local Time Zone
+
+# Development and Build Tools
+# -----------------------------------------------------------------------------
+pip==23.2.1                       # Package Installer
+setuptools==68.2.0                # Build System
+wheel==0.41.2                     # Built Distribution Format
+filelock==3.20.0                  # File Locking
+
+# Utility Libraries
+# -----------------------------------------------------------------------------
+colorama==0.4.6                   # Cross-platform Colored Terminal Text
+Jinja2==3.1.6                     # Template Engine
+MarkupSafe==3.0.3                 # HTML/XML Escaping
+packaging==25.0                   # Core Utilities for Python Packages
+typing_extensions==4.15.0         # Backported Type Hints
+
+# Scientific Computing
+# -----------------------------------------------------------------------------
+sympy==1.14.0                     # Symbolic Mathematics
+mpmath==1.3.0                     # Arbitrary-precision Arithmetic
+networkx==3.4.2                   # Graph Theory and Complex Networks
+
+# Plotting and Graphics
+# -----------------------------------------------------------------------------
+contourpy==1.3.2                  # Contour Lines for Matplotlib
+cycler==0.12.1                    # Composable Style Cycles
+fonttools==4.60.1                 # Font Handling
+kiwisolver==1.4.9                 # Fast Linear System Solver
+pyparsing==3.2.5                  # General Parsing Library
+
+# Additional Utilities
+# -----------------------------------------------------------------------------
+docopt==0.6.2                     # Command-line Interface Description
+Js2Py==0.74                       # JavaScript to Python Translator
+PyPrind==2.11.3                   # Progress Bars and Progress Indicators
+pyjsparser==2.7.1                 # JavaScript Parser
+pySmartDL==1.3.4                  # Smart Download Manager
+pipwin==0.5.2                     # pip for Windows
+
+# Python Built-in Modules (No Installation Required)
+# -----------------------------------------------------------------------------
+# weakref          # Weak References
+# functools        # Higher-order Functions (LRU Cache)
+# threading        # Threading Support
+# queue           # Thread-safe Queues
+# json            # JSON Support
+# datetime        # Date/Time Handling
