@@ -112,6 +112,7 @@ obj/
 *.suo
 *.cache
 .vs/
+*.jpg
 
 # Go
 vendor/
@@ -127,7 +128,9 @@ Cargo.lock
 .DS_Store
 .AppleDouble
 .LSOverride
-
+resnet50_config.json
+*.json
+*.ps
 # Windows
 Thumbs.db
 ehthumbs.db
