@@ -1,8 +1,0 @@
-{
-  "batch_size": 16,
-  "epochs": 10,
-  "learning_rate": 0.001,
-  "strategy": "fine_tune",
-  "use_scheduler": true,
-  "timestamp": "2025-10-21T15:28:44.459397"
-}
