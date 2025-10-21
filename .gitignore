@@ -8,7 +8,10 @@
 *.swp
 *.swo
 *~
-
+data/
+temp_canvas.ps
+resnet50_config.json
+transferResNet50/
 # Python
 __pycache__/
 *.py[cod]
